@@ -527,6 +527,31 @@ function toast(msg) {
 }
 function payerDot(p) { return p === OWNER1 ? 'h' : p === OWNER2 ? 's' : 'j'; }
 
+// 수입·투자 카테고리 (지출은 예산 카테고리 S.bd 사용)
+const INCOME_CATS = [
+  {id:'i1', n:'근로소득(월급)'},
+  {id:'i2', n:'근로소득(상여·성과급)'},
+  {id:'i3', n:'사업·부업'},
+  {id:'i4', n:'금융소득(이자·배당)'},
+  {id:'i5', n:'임대소득'},
+  {id:'i6', n:'기타수입'}
+];
+const INVEST_CATS = [
+  {id:'v1', n:'국내주식'},
+  {id:'v2', n:'해외주식·ETF'},
+  {id:'v3', n:'채권'},
+  {id:'v4', n:'코인'},
+  {id:'v5', n:'금'},
+  {id:'v6', n:'연금·IRP·ISA'},
+  {id:'v7', n:'기타'}
+];
+function catsFor(type) { return type === 'income' ? INCOME_CATS : type === 'invest' ? INVEST_CATS : null; }
+function catNameOf(t) {
+  if (t.t === 'income') { const c = INCOME_CATS.find(x => x.id === t.c); return c ? c.n : '수입'; }
+  if (t.t === 'invest') { const c = INVEST_CATS.find(x => x.id === t.c); return c ? c.n : '투자'; }
+  const b = S.bd.find(x => x.id === t.c); return b ? b.n : '기타';
+}
+
 function spentByCat() {
   const map = {};
   S.bd.forEach(b => map[b.id] = 0);
@@ -616,9 +641,8 @@ function renderHome() {
 
   const recent = [...S.tx].sort((a, b) => b.d.localeCompare(a.d) || 0).slice(0, 6);
   const txList = recent.length ? recent.map(t => {
-    const cat = S.bd.find(b => b.id === t.c);
     const sign = t.t === 'income' ? '+' : t.t === 'invest' ? '◆ ' : '';
-    const catName = cat ? cat.n : (t.t === 'income' ? '수입' : t.t === 'invest' ? '투자' : '기타');
+    const catName = catNameOf(t);
     return `<div class="tx-row">
       <div class="tx-left">
         <div class="tx-m">${t.m}</div>
@@ -733,15 +757,24 @@ function renderInput() {
     `<button data-p="${p}" class="${inputState.p===p?'active':''}">${p}</button>`
   ).join('');
 
-  const chipGroups = ['고정','변동','비정기','용돈'].map(g => {
-    const items = S.bd.filter(b => b.g === g).map(b =>
-      `<button class="chip ${inputState.c===b.id?'active':''}" data-cat="${b.id}">${b.n}</button>`
-    ).join('');
-    return `<div class="chip-group">
-      <div class="gn">${g}</div>
-      <div class="chip-row">${items}</div>
-    </div>`;
-  }).join('');
+  // 타입별 카테고리 칩
+  const chip = (id, n) => `<button class="chip ${inputState.c===id?'active':''}" data-cat="${id}">${n}</button>`;
+  let chipSection;
+  if (inputState.t === 'expense') {
+    chipSection = ['고정','변동','비정기','용돈'].map(g => {
+      const items = S.bd.filter(b => b.g === g).map(b => chip(b.id, b.n)).join('');
+      return `<div class="chip-group"><div class="gn">${g}</div><div class="chip-row">${items}</div></div>`;
+    }).join('');
+  } else {
+    chipSection = `<div class="chip-row">${catsFor(inputState.t).map(c => chip(c.id, c.n)).join('')}</div>`;
+  }
+
+  // 타입별 라벨/예시
+  const memo = inputState.t === 'income'
+      ? {label:'출처 / 메모', ph:'예: 회사 월급, 배당 등'}
+    : inputState.t === 'invest'
+      ? {label:'내용 / 메모', ph:'예: S&P500 ETF 매수 등'}
+      : {label:'결제처 / 메모', ph:'예: 커피, 마트 등'};
 
   document.getElementById('tab-input').innerHTML = `
     <div class="toggle-group" id="type-toggle">
@@ -756,13 +789,13 @@ function renderInput() {
     </div>
 
     <div class="field">
-      <label>결제처 / 메모</label>
-      <input type="text" id="merchant-input" placeholder="예: 커피, 월급 등" value="${inputState.m}">
+      <label>${memo.label}</label>
+      <input type="text" id="merchant-input" placeholder="${memo.ph}" value="${inputState.m}">
     </div>
 
     <div class="field">
       <label>카테고리</label>
-      ${chipGroups}
+      ${chipSection}
     </div>
 
     <div class="field">
@@ -787,9 +820,10 @@ function renderInput() {
 
   document.querySelectorAll('#type-toggle button').forEach(b => {
     b.addEventListener('click', () => {
+      if (inputState.t === b.dataset.type) return;
       inputState.t = b.dataset.type;
-      document.querySelectorAll('#type-toggle button').forEach(x => x.classList.remove('active'));
-      b.classList.add('active');
+      inputState.c = '';   // 타입마다 카테고리가 다르므로 초기화
+      renderInput();       // 칩·라벨 다시 그림
     });
   });
 

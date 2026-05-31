@@ -375,6 +375,13 @@ let MEMBERS = [];     // 멤버 목록
 let MYROLE = 'member';
 let OWNER1 = '';      // 첫 번째 구성원 이름 (자산 h슬롯·파랑)
 let OWNER2 = '';      // 두 번째 구성원 이름 (자산 s슬롯·주황)
+let HIDE_NW = false;  // 자산 금액 가리기 (기기별 설정)
+try { HIDE_NW = localStorage.getItem('moadoni_hide_nw') === '1'; } catch (e) {}
+function toggleHideNW() {
+  HIDE_NW = !HIDE_NW;
+  try { localStorage.setItem('moadoni_hide_nw', HIDE_NW ? '1' : '0'); } catch (e) {}
+  rerenderCurrent();
+}
 
 const KEY = 'logi_v1';
 const _pad = n => String(n).padStart(2, '0');
@@ -592,6 +599,7 @@ function renderHome() {
 
   const grp = spentByGroup();
   const nw = netWorth();
+  const mask = v => HIDE_NW ? '••••' : fmtMan(v);
 
   const groupCards = ['고정','변동','비정기','용돈'].map(g => {
     const s = grp.spent[g], b = grp.budget[g];
@@ -633,9 +641,12 @@ function renderHome() {
     </div>
 
     <div class="card">
-      <div class="card-title">부부 순자산</div>
-      <div class="big-num">${fmtMan(nw)}</div>
-      <div class="sub-num">자산 ${fmtMan(nw + S.dt)} − 부채 ${fmtMan(S.dt)}</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <div class="card-title" style="margin-bottom:0;">부부 순자산</div>
+        <button onclick="toggleHideNW()" style="background:none;border:0;font-size:17px;cursor:pointer;padding:2px 4px;line-height:1;">${HIDE_NW?'🙈':'👁️'}</button>
+      </div>
+      <div class="big-num" style="margin-top:6px;">${mask(nw)}</div>
+      <div class="sub-num">자산 ${mask(nw + S.dt)} − 부채 ${mask(S.dt)}</div>
     </div>
 
     <div class="card-title" style="padding: 6px 4px;">카테고리별 사용</div>
@@ -746,7 +757,7 @@ function renderInput() {
 
     <div class="field">
       <label>결제처 / 메모</label>
-      <input type="text" id="merchant-input" placeholder="예: 스타벅스, 월급 등" value="${inputState.m}">
+      <input type="text" id="merchant-input" placeholder="예: 커피, 월급 등" value="${inputState.m}">
     </div>
 
     <div class="field">
@@ -946,13 +957,6 @@ function renderReport() {
       <div class="bullet">비정기 적립 잔액 점검 — 여행/경조사 통장 분리 검토</div>
       <div class="bullet">투자 비중 — 현재 자산배분이 목표와 얼마나 다른지 확인</div>
     </div>
-
-    <div class="card">
-      <div class="card-title">📅 6월 빅이벤트</div>
-      <div class="bullet">자동차 보험 갱신 예정 (변동지출 일시 증가)</div>
-      <div class="bullet">결혼 기념일 — 여행적립에서 사용 검토</div>
-      <div class="bullet">반기 자산 리밸런싱 (6월 말)</div>
-    </div>
   `;
 }
 
@@ -1033,16 +1037,18 @@ function renderFlowChart() {
 function renderAsset() {
   const keys = ['cash','krs','uss','cry','gld','bnd','re'];
   const nw = netWorth();
+  const mask = v => HIDE_NW ? '••••' : fmtMan(v);
+  const maskCell = v => HIDE_NW ? '••' : (v ? fmtMan(v) : '-');
 
   const rows = keys.map(k => {
     const a = S.as[k];
     const sum = (a.h||0) + (a.s||0) + (a.c||0);
     return `<tr>
       <td>${a.n}</td>
-      <td class="hansol-col">${a.h?fmtMan(a.h):'-'}</td>
-      <td class="spouse-col">${a.s?fmtMan(a.s):'-'}</td>
-      <td>${a.c?fmtMan(a.c):'-'}</td>
-      <td>${fmtMan(sum)}</td>
+      <td class="hansol-col">${maskCell(a.h)}</td>
+      <td class="spouse-col">${maskCell(a.s)}</td>
+      <td>${maskCell(a.c)}</td>
+      <td>${mask(sum)}</td>
     </tr>`;
   }).join('');
 
@@ -1076,7 +1082,7 @@ function renderAsset() {
       </div>
       <div class="alloc-bar"><div style="width:${Math.min(100,pct)}%;background:${a.c}"></div></div>
       <div class="alloc-meta">
-        <span>${fmtMan(a.cur)}</span>
+        <span>${mask(a.cur)}</span>
         <span style="color:${diffColor};font-weight:500;">${diff>=0?'+':''}${diff.toFixed(1)}%p</span>
       </div>
     </div>`;
@@ -1084,17 +1090,20 @@ function renderAsset() {
 
   document.getElementById('tab-asset').innerHTML = `
     <div class="card">
-      <div class="card-title">부부 순자산</div>
-      <div class="big-num">${fmtMan(nw)}</div>
-      <div class="sub-num">자산 ${fmtMan(totalAsset)} − 부채 ${fmtMan(S.dt)}</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <div class="card-title" style="margin-bottom:0;">부부 순자산</div>
+        <button onclick="toggleHideNW()" style="background:none;border:0;font-size:17px;cursor:pointer;padding:2px 4px;line-height:1;">${HIDE_NW?'🙈':'👁️'}</button>
+      </div>
+      <div class="big-num" style="margin-top:6px;">${mask(nw)}</div>
+      <div class="sub-num">자산 ${mask(totalAsset)} − 부채 ${mask(S.dt)}</div>
       <div class="who-pill">
-        <div><div class="l">${OWNER1||'구성원1'}</div><div class="v" style="color:var(--hansol)">${fmtMan(hSum)}</div></div>
-        <div><div class="l">${OWNER2||'구성원2'}</div><div class="v" style="color:var(--spouse)">${fmtMan(sSum)}</div></div>
-        <div><div class="l">공동</div><div class="v" style="color:var(--joint)">${fmtMan(cSum)}</div></div>
+        <div><div class="l">${OWNER1||'구성원1'}</div><div class="v" style="color:var(--hansol)">${mask(hSum)}</div></div>
+        <div><div class="l">${OWNER2||'구성원2'}</div><div class="v" style="color:var(--spouse)">${mask(sSum)}</div></div>
+        <div><div class="l">공동</div><div class="v" style="color:var(--joint)">${mask(cSum)}</div></div>
       </div>
     </div>
 
-    ${renderFlowChart()}
+    ${HIDE_NW ? '<div class="card"><div class="card-title">순자산 추이</div><div class="sub-num">🙈 가림 상태 (눈 아이콘을 눌러 표시)</div></div>' : renderFlowChart()}
 
     <div class="card">
       <div class="card-title">자산 종류 × 소유자 매트릭스</div>
@@ -1110,12 +1119,12 @@ function renderAsset() {
         </thead>
         <tbody>
           ${rows}
-          <tr class="debt"><td>주담대</td><td>-</td><td>-</td><td>-${fmtMan(S.dt)}</td><td>-${fmtMan(S.dt)}</td></tr>
+          <tr class="debt"><td>주담대</td><td>-</td><td>-</td><td>${HIDE_NW?'••':'-'+fmtMan(S.dt)}</td><td>${HIDE_NW?'••':'-'+fmtMan(S.dt)}</td></tr>
           <tr class="total"><td>순자산</td>
-            <td class="hansol-col">${fmtMan(hSum)}</td>
-            <td class="spouse-col">${fmtMan(sSum)}</td>
-            <td>${fmtMan(cSum - S.dt)}</td>
-            <td>${fmtMan(nw)}</td>
+            <td class="hansol-col">${mask(hSum)}</td>
+            <td class="spouse-col">${mask(sSum)}</td>
+            <td>${mask(cSum - S.dt)}</td>
+            <td>${mask(nw)}</td>
           </tr>
         </tbody>
       </table>

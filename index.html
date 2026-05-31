@@ -427,7 +427,7 @@ const DEFAULTS = {
     pen:  {n:'연금상품',    h:0, s:0, c:0},
     re:   {n:'부동산',      h:0, s:0, c:0}
   },
-  dt: {mortgage:0, credit:0, minus:0},
+  dt: {mortgage:0, credit:{h:0,s:0,c:0}, minus:{h:0,s:0,c:0}},
   hist: []
 };
 
@@ -446,9 +446,7 @@ async function loadData() {
   if (blob.inc != null) S.inc = blob.inc;
   if (blob.bd)   S.bd   = blob.bd;
   S.as = Object.assign(clone(DEFAULTS.as), blob.as || {});   // 새 자산종류(연금 등) 보강
-  S.dt = (typeof blob.dt === 'number')
-    ? Object.assign(clone(DEFAULTS.dt), { mortgage: blob.dt })   // 옛 단일 숫자 → 주담대로 이전
-    : Object.assign(clone(DEFAULTS.dt), blob.dt || {});
+  S.dt = normalizeDebt(blob.dt);
   if (blob.hist) S.hist = blob.hist;
   if (Object.keys(blob).length === 0) await pushSettings();   // 새 가계부면 기본 설정 한 번 저장
   S.tx = (rows || []).map(r => ({
@@ -593,14 +591,26 @@ function totalIncome() {
 function totalBudget() {
   return S.bd.reduce((s, b) => s + b.a, 0);
 }
-const DEBT_TYPES = [
-  {id:'mortgage', n:'주택담보대출'},
-  {id:'credit',   n:'신용대출'},
-  {id:'minus',    n:'마이너스통장'}
-];
-function totalDebt() {
-  if (typeof S.dt === 'number') return S.dt;   // 옛 단일값 호환
-  return DEBT_TYPES.reduce((s,d) => s + ((S.dt && S.dt[d.id]) || 0), 0);
+function normalizeDebt(dt) {
+  const out = { mortgage: 0, credit: {h:0,s:0,c:0}, minus: {h:0,s:0,c:0} };
+  if (dt == null) return out;
+  if (typeof dt === 'number') { out.mortgage = dt; return out; }   // 아주 옛 단일값
+  out.mortgage = dt.mortgage || 0;
+  ['credit','minus'].forEach(k => {
+    const v = dt[k];
+    if (typeof v === 'number') out[k] = {h:0, s:0, c:v};            // 옛 단일 → 공동
+    else if (v && typeof v === 'object') out[k] = Object.assign({h:0,s:0,c:0}, v);
+  });
+  return out;
+}
+function debtSlot(slot) {   // 소유주별 부채 (신용+마이너스)
+  return ((S.dt.credit && S.dt.credit[slot]) || 0) + ((S.dt.minus && S.dt.minus[slot]) || 0);
+}
+function totalDebt(inclMortgage) {   // 부동산(주담대) 제외 시 inclMortgage=false
+  if (inclMortgage === undefined) inclMortgage = true;
+  let t = debtSlot('h') + debtSlot('s') + debtSlot('c');
+  if (inclMortgage) t += (S.dt.mortgage || 0);
+  return t;
 }
 function assetTotal(inclRe) {
   let total = 0;
@@ -612,7 +622,7 @@ function assetTotal(inclRe) {
 }
 function netWorth(inclRe) {
   if (inclRe === undefined) inclRe = true;
-  return assetTotal(inclRe) - totalDebt();
+  return assetTotal(inclRe) - totalDebt(inclRe);   // 부동산 제외 시 주담대도 제외
 }
 // 현재 달 순자산 스냅샷을 hist에 기록(상향). 자산 편집 때 호출 → 추이 그래프 누적
 function recordSnapshot() {
@@ -1107,8 +1117,12 @@ function renderAsset() {
   const sSum = keys.reduce((s,k) => s + (S.as[k].s||0), 0);
   const cSum = keys.reduce((s,k) => s + (S.as[k].c||0), 0);
   const totalAsset = hSum + sSum + cSum;
-  const debt = totalDebt();
+  const mortgage = inclRe ? (S.dt.mortgage||0) : 0;   // 부동산 제외 시 주담대 빠짐
+  const debtH = debtSlot('h'), debtS = debtSlot('s'), debtC = debtSlot('c') + mortgage;
+  const debt = debtH + debtS + debtC;
+  const nwH = hSum - debtH, nwS = sSum - debtS, nwC = cSum - debtC;
   const nw = totalAsset - debt;
+  const negCell = v => HIDE_NW ? '••' : (v ? '-' + fmtMan(v) : '-');
 
   const sumAll = (k) => (S.as[k].h||0) + (S.as[k].s||0) + (S.as[k].c||0);
   const stocks = sumAll('krs') + sumAll('uss');
@@ -1155,9 +1169,9 @@ function renderAsset() {
       <div class="big-num" style="margin-top:6px;">${mask(nw)}</div>
       <div class="sub-num">자산 ${mask(totalAsset)} − 부채 ${mask(debt)}</div>
       <div class="who-pill">
-        <div><div class="l">${OWNER1||'구성원1'}</div><div class="v" style="color:var(--hansol)">${mask(hSum)}</div></div>
-        <div><div class="l">${OWNER2||'구성원2'}</div><div class="v" style="color:var(--spouse)">${mask(sSum)}</div></div>
-        <div><div class="l">공동</div><div class="v" style="color:var(--joint)">${mask(cSum)}</div></div>
+        <div><div class="l">${OWNER1||'구성원1'}</div><div class="v" style="color:var(--hansol)">${mask(nwH)}</div></div>
+        <div><div class="l">${OWNER2||'구성원2'}</div><div class="v" style="color:var(--spouse)">${mask(nwS)}</div></div>
+        <div><div class="l">공동</div><div class="v" style="color:var(--joint)">${mask(nwC)}</div></div>
       </div>
     </div>
 
@@ -1175,11 +1189,15 @@ function renderAsset() {
         </thead>
         <tbody>
           ${rows}
-          ${DEBT_TYPES.filter(d => (S.dt[d.id]||0) > 0).map(d => `<tr class="debt"><td>${d.n}</td><td>-</td><td>-</td><td>${HIDE_NW?'••':'-'+fmtMan(S.dt[d.id])}</td><td>${HIDE_NW?'••':'-'+fmtMan(S.dt[d.id])}</td></tr>`).join('')}
+          ${[['credit','신용대출'],['minus','마이너스통장']].map(([k,label]) => {
+            const d = S.dt[k]; const sum = (d.h||0)+(d.s||0)+(d.c||0);
+            return sum > 0 ? `<tr class="debt"><td>${label}</td><td class="hansol-col">${negCell(d.h)}</td><td class="spouse-col">${negCell(d.s)}</td><td>${negCell(d.c)}</td><td>${negCell(sum)}</td></tr>` : '';
+          }).join('')}
+          ${inclRe && (S.dt.mortgage||0) > 0 ? `<tr class="debt"><td>주택담보대출</td><td>-</td><td>-</td><td>${negCell(S.dt.mortgage)}</td><td>${negCell(S.dt.mortgage)}</td></tr>` : ''}
           <tr class="total"><td>순자산</td>
-            <td class="hansol-col">${mask(hSum)}</td>
-            <td class="spouse-col">${mask(sSum)}</td>
-            <td>${mask(cSum - debt)}</td>
+            <td class="hansol-col">${mask(nwH)}</td>
+            <td class="spouse-col">${mask(nwS)}</td>
+            <td>${mask(nwC)}</td>
             <td>${mask(nw)}</td>
           </tr>
         </tbody>
@@ -1234,14 +1252,27 @@ function openAssetEdit() {
       </div>
     </div>`;
   }).join('');
-  const debtRow = `<div class="sheet-item">
-    <div class="sheet-item-head"><span class="nm">부채</span></div>
-    <div class="asset-edit-grid">
-      ${DEBT_TYPES.map(d => `<label>${d.n}<input type="text" inputmode="numeric" data-dk="${d.id}" value="${S.dt[d.id]?S.dt[d.id].toLocaleString('ko-KR'):''}" placeholder="0"></label>`).join('')}
-    </div></div>`;
+  const debtSection = `
+    <div class="sheet-item">
+      <div class="sheet-item-head"><span class="nm">주택담보대출 (공동)</span></div>
+      <div class="asset-edit-grid one">
+        <label>금액<input type="text" inputmode="numeric" data-dm="1" value="${S.dt.mortgage?S.dt.mortgage.toLocaleString('ko-KR'):''}" placeholder="0"></label>
+      </div>
+    </div>
+    ${[['credit','신용대출'],['minus','마이너스통장']].map(([k,label]) => {
+      const d = S.dt[k];
+      return `<div class="sheet-item">
+        <div class="sheet-item-head"><span class="nm">${label}</span></div>
+        <div class="asset-edit-grid">
+          <label>${o1}<input type="text" inputmode="numeric" data-dk2="${k}" data-of="h" value="${d.h?d.h.toLocaleString('ko-KR'):''}" placeholder="0"></label>
+          <label>${o2}<input type="text" inputmode="numeric" data-dk2="${k}" data-of="s" value="${d.s?d.s.toLocaleString('ko-KR'):''}" placeholder="0"></label>
+          <label>공동<input type="text" inputmode="numeric" data-dk2="${k}" data-of="c" value="${d.c?d.c.toLocaleString('ko-KR'):''}" placeholder="0"></label>
+        </div>
+      </div>`;
+    }).join('')}`;
   document.getElementById('sheet-title').textContent = '자산·부채 입력';
   document.getElementById('sheet-sub').textContent = '소유자별 금액(원)을 입력하세요. 자동 저장됩니다.';
-  document.getElementById('sheet-body').innerHTML = rows + debtRow;
+  document.getElementById('sheet-body').innerHTML = rows + debtSection;
 
   const onNum = (el, apply) => el.addEventListener('input', e => {
     const v = parseInt(e.target.value.replace(/[^0-9]/g,''), 10) || 0;
@@ -1250,8 +1281,10 @@ function openAssetEdit() {
   });
   document.querySelectorAll('#sheet-body input[data-ak]').forEach(inp =>
     onNum(inp, v => { S.as[inp.dataset.ak][inp.dataset.of] = v; }));
-  document.querySelectorAll('#sheet-body input[data-dk]').forEach(inp =>
-    onNum(inp, v => { S.dt[inp.dataset.dk] = v; }));
+  const mEl = document.querySelector('#sheet-body input[data-dm]');
+  if (mEl) onNum(mEl, v => { S.dt.mortgage = v; });
+  document.querySelectorAll('#sheet-body input[data-dk2]').forEach(inp =>
+    onNum(inp, v => { S.dt[inp.dataset.dk2][inp.dataset.of] = v; }));
 
   document.getElementById('sheet').classList.add('show');
   document.getElementById('sheet-backdrop').classList.add('show');

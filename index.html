@@ -507,6 +507,42 @@ function editTx(id) {
   switchTab('input');
 }
 
+// 전체 거래 내역 (월별 그룹, 탭하면 수정/삭제)
+function openAllTx() {
+  const all = [...S.tx].sort((a, b) => b.d.localeCompare(a.d));
+  document.getElementById('sheet-title').textContent = '전체 거래 내역';
+  document.getElementById('sheet-sub').textContent = all.length ? `${all.length}건 · 탭하면 수정/삭제` : '';
+  if (!all.length) {
+    document.getElementById('sheet-body').innerHTML = '<div class="empty">거래 내역이 없습니다</div>';
+  } else {
+    let html = '', curMonth = '';
+    all.forEach(t => {
+      const m = t.d.slice(0, 7);
+      if (m !== curMonth) {
+        curMonth = m;
+        const [y, mo] = m.split('-');
+        html += `<div class="gn" style="margin:14px 0 4px;font-size:11px;color:var(--text-3);font-weight:500;">${y}년 ${parseInt(mo,10)}월</div>`;
+      }
+      const sign = t.t === 'income' ? '+' : t.t === 'invest' ? '◆ ' : '';
+      html += `<div class="tx-row" onclick="editFromSheet('${t.id}')" style="cursor:pointer;">
+        <div class="tx-left">
+          <div class="tx-m">${t.m}</div>
+          <div class="tx-meta">${t.d.slice(5).replace('-','/')} · ${catNameOf(t)} · <span class="dot ${payerDot(t.p)}"></span>${t.p}</div>
+        </div>
+        <div class="tx-a ${t.t}">${sign}${fmt(t.a)}원</div>
+      </div>`;
+    });
+    document.getElementById('sheet-body').innerHTML = html;
+  }
+  document.getElementById('sheet').classList.add('show');
+  document.getElementById('sheet-backdrop').classList.add('show');
+}
+function editFromSheet(id) {
+  document.getElementById('sheet').classList.remove('show');
+  document.getElementById('sheet-backdrop').classList.remove('show');
+  editTx(id);
+}
+
 // 실시간: 거래/설정 변경 → 데이터 다시 받아 현재 탭 갱신 (디바운스)
 let rtTimer = null;
 function scheduleReload() {
@@ -739,8 +775,11 @@ function renderHome() {
     <div class="cat-grid">${groupCards}</div>
 
     <div class="card" style="margin-top:12px;">
-      <div class="card-title">최근 거래</div>
-      ${txList}
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <div class="card-title" style="margin-bottom:0;">최근 거래</div>
+        <button onclick="openAllTx()" style="background:none;border:0;color:var(--accent);font-size:12px;font-weight:600;cursor:pointer;">전체 보기 ›</button>
+      </div>
+      <div style="margin-top:8px;">${txList}</div>
     </div>
   `;
 

@@ -186,7 +186,7 @@ body {
 
 .field { margin-bottom: 16px; }
 .field label { display: block; font-size: 12px; color: var(--text-2); margin-bottom: 6px; font-weight: 500; }
-.field input[type=text] {
+.field input[type=text], .field input[type=date] {
   width: 100%; padding: 12px 14px; border: 0.5px solid var(--border-2); border-radius: 10px;
   background: var(--surface); color: var(--text); font-size: 14px; font-family: inherit; outline: none;
   -webkit-appearance: none;
@@ -488,6 +488,25 @@ async function deleteTransaction(id) {
   return true;
 }
 
+async function updateTransaction(id, tx) {
+  const { data, error } = await sb.from('transactions').update({
+    d: tx.d, t: tx.t, a: tx.a, m: tx.m, c: tx.c, author_label: tx.p, updated_at: new Date().toISOString()
+  }).eq('id', id).select().single();
+  if (error) { toast('수정 실패: ' + error.message); return false; }
+  const mapped = { id, d: data.d, t: data.t, a: Number(data.a), m: data.m||'', c: data.c||'', p: data.author_label||'' };
+  const i = S.tx.findIndex(x => x.id === id);
+  if (i >= 0) S.tx[i] = mapped; else S.tx.push(mapped);
+  return true;
+}
+
+// 홈 거래 탭 → 탭하면 수정 화면으로
+function editTx(id) {
+  const t = S.tx.find(x => x.id === id);
+  if (!t) return;
+  inputState = { id: t.id, t: t.t, a: t.a, m: t.m, c: t.c, p: t.p, d: t.d };
+  switchTab('input');
+}
+
 // 실시간: 거래/설정 변경 → 데이터 다시 받아 현재 탭 갱신 (디바운스)
 let rtTimer = null;
 function scheduleReload() {
@@ -686,7 +705,7 @@ function renderHome() {
   const txList = recent.length ? recent.map(t => {
     const sign = t.t === 'income' ? '+' : t.t === 'invest' ? '◆ ' : '';
     const catName = catNameOf(t);
-    return `<div class="tx-row">
+    return `<div class="tx-row" onclick="editTx('${t.id}')" style="cursor:pointer;">
       <div class="tx-left">
         <div class="tx-m">${t.m}</div>
         <div class="tx-meta">${t.d.slice(5).replace('-','/')} · ${catName} · <span class="dot ${payerDot(t.p)}"></span>${t.p}</div>
@@ -786,7 +805,7 @@ function closeSheet() {
 document.getElementById('sheet-backdrop').addEventListener('click', closeSheet);
 
 // ===== INPUT =====
-let inputState = {t:'expense', a:0, m:'', c:'', p:'공동'};
+let inputState = {id:null, t:'expense', a:0, m:'', c:'', p:'', d:TODAY};
 
 function renderInput() {
   // 결제자 후보: 구성원 + 공동 (기본값 = 나)
@@ -820,6 +839,7 @@ function renderInput() {
       : {label:'결제처 / 메모', ph:'예: 커피, 마트 등'};
 
   document.getElementById('tab-input').innerHTML = `
+    ${inputState.id ? '<div class="sub-num" style="text-align:center;margin-bottom:10px;color:var(--accent);font-weight:600;">✏️ 거래 수정 중</div>' : ''}
     <div class="toggle-group" id="type-toggle">
       <button data-type="expense" class="${inputState.t==='expense'?'active':''}">지출</button>
       <button data-type="income" class="${inputState.t==='income'?'active':''}">수입</button>
@@ -829,6 +849,11 @@ function renderInput() {
     <div class="card">
       <div class="card-title">금액</div>
       <input type="text" class="amount-input" id="amt-input" placeholder="0" inputmode="numeric" value="${inputState.a?inputState.a.toLocaleString('ko-KR'):''}">
+    </div>
+
+    <div class="field">
+      <label>날짜</label>
+      <input type="date" id="date-input" value="${inputState.d || TODAY}">
     </div>
 
     <div class="field">
@@ -846,7 +871,9 @@ function renderInput() {
       <div class="payer-row" id="payer-row">${payerBtns}</div>
     </div>
 
-    <button class="btn-primary" id="save-tx">저장</button>
+    <button class="btn-primary" id="save-tx">${inputState.id ? '수정 저장' : '저장'}</button>
+    ${inputState.id ? `<button class="reset-link" id="del-tx" style="color:var(--danger);">이 거래 삭제</button>
+    <button class="reset-link" id="cancel-edit">취소</button>` : ''}
   `;
 
   const amt = document.getElementById('amt-input');
@@ -855,7 +882,11 @@ function renderInput() {
     inputState.a = parseInt(raw, 10) || 0;
     e.target.value = inputState.a ? inputState.a.toLocaleString('ko-KR') : '';
   });
-  setTimeout(() => amt.focus(), 50);
+  if (!inputState.id) setTimeout(() => amt.focus(), 50);
+
+  document.getElementById('date-input').addEventListener('change', e => {
+    inputState.d = e.target.value || TODAY;
+  });
 
   document.getElementById('merchant-input').addEventListener('input', e => {
     inputState.m = e.target.value;
@@ -893,16 +924,33 @@ function renderInput() {
 
     const btn = document.getElementById('save-tx');
     btn.disabled = true;
-    const ok = await addTransaction({
-      d: TODAY, t: inputState.t, a: inputState.a,
+    const payload = {
+      d: inputState.d || TODAY, t: inputState.t, a: inputState.a,
       m: inputState.m.trim(), c: inputState.c, p: inputState.p || myLabel()
-    });
+    };
+    const ok = inputState.id
+      ? await updateTransaction(inputState.id, payload)
+      : await addTransaction(payload);
     btn.disabled = false;
     if (!ok) return;
-    toast('저장되었습니다');
-    inputState = {t:'expense', a:0, m:'', c:'', p:''};
+    toast(inputState.id ? '수정되었습니다' : '저장되었습니다');
+    inputState = {id:null, t:'expense', a:0, m:'', c:'', p:'', d:TODAY};
     switchTab('home');
   });
+
+  if (inputState.id) {
+    document.getElementById('del-tx').addEventListener('click', async () => {
+      if (!confirm('이 거래를 삭제할까요?')) return;
+      if (!(await deleteTransaction(inputState.id))) return;
+      toast('삭제되었습니다');
+      inputState = {id:null, t:'expense', a:0, m:'', c:'', p:'', d:TODAY};
+      switchTab('home');
+    });
+    document.getElementById('cancel-edit').addEventListener('click', () => {
+      inputState = {id:null, t:'expense', a:0, m:'', c:'', p:'', d:TODAY};
+      switchTab('home');
+    });
+  }
 }
 
 // ===== BUDGET =====
@@ -1004,7 +1052,30 @@ function renderReport() {
 
   const investSum = S.tx.filter(t => t.t === 'invest' && t.d.startsWith(MONTH)).reduce((s,t)=>s+t.a, 0);
 
+  // 순자산 (부동산 포함/제외 토글 = 자산탭과 공유) + 전월 대비
+  const inclRe = ASSET_VIEW !== 'exRe';
+  const rMask = v => HIDE_NW ? '••••' : fmtMan(v);
+  const curNw = netWorth(inclRe);
+  const pd = new Date(Number(MONTH.split('-')[0]), Number(MONTH.split('-')[1]) - 2, 1);
+  const prevMonth = pd.getFullYear() + '-' + _pad(pd.getMonth() + 1);
+  const prevEntry = (S.hist || []).find(h => h.m === prevMonth);
+  const prevNw = prevEntry ? (inclRe ? prevEntry.nw : (prevEntry.nwx != null ? prevEntry.nwx : prevEntry.nw)) : null;
+  const nwDiff = prevNw != null ? curNw - prevNw : null;
+
   document.getElementById('tab-report').innerHTML = `
+    <div class="toggle-group" style="margin-bottom:14px;">
+      <button class="${inclRe?'active':''}" onclick="setAssetView('all')">부동산 포함</button>
+      <button class="${!inclRe?'active':''}" onclick="setAssetView('exRe')">부동산 제외</button>
+    </div>
+
+    <div class="card">
+      <div class="card-title">이번 달 순자산${inclRe?'':' (부동산 제외)'}</div>
+      <div class="big-num">${rMask(curNw)}</div>
+      ${nwDiff != null
+        ? `<div class="sub-num" style="margin-top:2px;color:${nwDiff>=0?'var(--success)':'var(--danger)'};font-weight:500;">전월 대비 ${nwDiff>=0?'+':''}${rMask(nwDiff)}</div>`
+        : '<div class="sub-num" style="margin-top:2px;">전월 자산 기록이 쌓이면 증감이 표시돼요</div>'}
+    </div>
+
     <div class="card">
       <div class="card-title">${YEAR}년 ${MON}월 요약</div>
       <div class="kv-row"><span class="k">수입</span><span class="v">${fmt(income)}원</span></div>

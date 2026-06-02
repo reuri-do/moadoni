@@ -852,7 +852,6 @@ function renderInput() {
   if (OWNER1) payers.push(OWNER1);
   if (OWNER2) payers.push(OWNER2);
   if (!payers.length) payers.push(myLabel());
-  payers.push('공동');
   if (!inputState.p || !payers.includes(inputState.p)) inputState.p = myLabel();
   const payerBtns = payers.map(p =>
     `<button data-p="${p}" class="${inputState.p===p?'active':''}">${p}</button>`

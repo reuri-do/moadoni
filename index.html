@@ -202,6 +202,7 @@ body {
   transition: all .12s;
 }
 .chip.active { background: var(--accent); color: white; border-color: var(--accent); }
+.chip.chip-add { border-style: dashed; color: var(--accent); border-color: var(--accent); background: transparent; }
 
 .payer-row { display: flex; gap: 6px; }
 .payer-row button {
@@ -302,6 +303,7 @@ body {
   <main>
     <section id="tab-home" class="tab active"></section>
     <section id="tab-input" class="tab"></section>
+    <section id="tab-ledger" class="tab"></section>
     <section id="tab-budget" class="tab"></section>
     <section id="tab-report" class="tab"></section>
     <section id="tab-asset" class="tab"></section>
@@ -309,7 +311,7 @@ body {
   <nav class="tabbar">
     <button data-tab="home" class="active"><span class="ic">🏠</span>홈</button>
     <button data-tab="input"><span class="ic">＋</span>입력</button>
-    <button data-tab="budget"><span class="ic">📊</span>예산</button>
+    <button data-tab="ledger"><span class="ic">🧾</span>내역</button>
     <button data-tab="report"><span class="ic">📋</span>결산</button>
     <button data-tab="asset"><span class="ic">💎</span>자산</button>
   </nav>
@@ -690,7 +692,8 @@ function recordSnapshot() {
 const HEADERS = {
   home:   {t:'홈',         s:`${YEAR}년 ${MON}월 · ${DAY}일`},
   input:  {t:'거래 입력',  s:'오늘 ' + TODAY.slice(5)},
-  budget: {t:'예산',       s:'월 예산 관리'},
+  ledger: {t:'내역',       s:`${MON}월 지출 비중 · 전체 거래`},
+  budget: {t:'예산 설정',  s:'월 예산 관리'},
   report: {t:`${MON}월 결산`, s:'한 달 돌아보기'},
   asset:  {t:'자산',       s:`${MON}월 ${DAY}일 기준`}
 };
@@ -699,7 +702,8 @@ function switchTab(name) {
   document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
   document.querySelectorAll('.tabbar button').forEach(b => b.classList.remove('active'));
   document.getElementById('tab-' + name).classList.add('active');
-  document.querySelector('.tabbar button[data-tab="' + name + '"]').classList.add('active');
+  const tabBtn = document.querySelector('.tabbar button[data-tab="' + name + '"]');
+  if (tabBtn) tabBtn.classList.add('active');   // 예산 설정은 탭바에 없음 (홈에서 진입)
   document.getElementById('header-title').textContent = HEADERS[name].t;
   document.getElementById('header-sub').textContent = HEADERS[name].s;
   window.scrollTo(0, 0);
@@ -751,6 +755,9 @@ function renderHome() {
   }).join('') : '<div class="empty">거래 내역이 없습니다</div>';
 
   document.getElementById('tab-home').innerHTML = `
+    <div style="display:flex;justify-content:flex-end;margin-bottom:8px;">
+      <button onclick="switchTab('budget')" style="background:var(--surface);border:0.5px solid var(--border-2);border-radius:18px;padding:7px 14px;font-size:12px;font-weight:600;color:var(--accent);cursor:pointer;font-family:inherit;">⚙️ 예산 설정</button>
+    </div>
     <div class="card">
       <div class="card-title">이번 달 지출</div>
       <div class="big-num">${fmt(spent)}원</div>
@@ -846,6 +853,19 @@ document.getElementById('sheet-backdrop').addEventListener('click', closeSheet);
 // ===== INPUT =====
 let inputState = {id:null, t:'expense', a:0, m:'', c:'', p:'', d:TODAY};
 
+// 지출 카테고리 추가 (입력 탭 칩에서 호출) — S.bd에 행 추가 후 자동 선택
+async function addCategory(g) {
+  const name = (prompt(`'${g}' 그룹에 추가할 카테고리 이름`) || '').trim();
+  if (!name) return;
+  if (S.bd.some(b => b.n === name && b.g === g)) { toast('이미 있는 카테고리예요'); return; }
+  const id = 'c' + Date.now();
+  S.bd.push({ id, n: name, g, a: 0 });
+  await pushSettings();
+  inputState.c = id;   // 새로 만든 카테고리 자동 선택
+  toast('카테고리가 추가됐어요');
+  renderInput();
+}
+
 function renderInput() {
   // 결제자 후보: 구성원 + 공동 (기본값 = 나)
   const payers = [];
@@ -862,7 +882,8 @@ function renderInput() {
   let chipSection;
   if (inputState.t === 'expense') {
     chipSection = ['고정','변동','비정기','용돈'].map(g => {
-      const items = S.bd.filter(b => b.g === g).map(b => chip(b.id, b.n)).join('');
+      const items = S.bd.filter(b => b.g === g).map(b => chip(b.id, b.n)).join('')
+        + `<button type="button" class="chip chip-add" data-addg="${g}">＋ 추가</button>`;
       return `<div class="chip-group"><div class="gn">${g}</div><div class="chip-row">${items}</div></div>`;
     }).join('');
   } else {
@@ -939,12 +960,16 @@ function renderInput() {
     });
   });
 
-  document.querySelectorAll('.chip').forEach(c => {
+  document.querySelectorAll('.chip:not(.chip-add)').forEach(c => {
     c.addEventListener('click', () => {
       inputState.c = c.dataset.cat;
       document.querySelectorAll('.chip').forEach(x => x.classList.remove('active'));
       c.classList.add('active');
     });
+  });
+
+  document.querySelectorAll('.chip-add').forEach(b => {
+    b.addEventListener('click', () => addCategory(b.dataset.addg));
   });
 
   document.querySelectorAll('#payer-row button').forEach(b => {
@@ -991,6 +1016,98 @@ function renderInput() {
   }
 }
 
+// ===== LEDGER (내역) =====
+const DONUT_COLORS = ['#0a84ff','#ff9500','#34c759','#5856d6','#ff3b30','#5ac8fa','#af52de','#ffcc00','#ff2d55','#8e8e93'];
+
+function renderDonut(items, total) {
+  if (!total) {
+    return `<div class="card"><div class="card-title">${MON}월 지출 비중</div><div class="empty">이번 달 지출이 없습니다</div></div>`;
+  }
+  const C = 2 * Math.PI * 52;   // 도넛 반지름 52
+  let offset = 0;
+  const segs = items.map((c, i) => {
+    const len = c.a / total * C;
+    const col = DONUT_COLORS[i % DONUT_COLORS.length];
+    const seg = `<circle cx="80" cy="80" r="52" fill="none" stroke="${col}" stroke-width="22"
+      stroke-dasharray="${len.toFixed(2)} ${(C-len).toFixed(2)}" stroke-dashoffset="${(-offset).toFixed(2)}"
+      transform="rotate(-90 80 80)"/>`;
+    offset += len;
+    return seg;
+  }).join('');
+
+  const legend = items.map((c, i) => {
+    const col = DONUT_COLORS[i % DONUT_COLORS.length];
+    const pct = (c.a / total * 100).toFixed(0);
+    return `<div style="display:flex;align-items:center;justify-content:space-between;padding:5px 0;font-size:13px;gap:8px;">
+      <span style="display:flex;align-items:center;gap:7px;min-width:0;">
+        <span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:${col};flex-shrink:0;"></span>
+        <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${c.n}</span>
+      </span>
+      <span style="white-space:nowrap;color:var(--text-2);"><b style="color:var(--text);">${fmt(c.a)}</b>원 · ${pct}%</span>
+    </div>`;
+  }).join('');
+
+  return `<div class="card">
+    <div class="card-title">${MON}월 지출 비중</div>
+    <div style="display:flex;align-items:center;gap:18px;flex-wrap:wrap;">
+      <svg viewBox="0 0 160 160" style="width:140px;height:140px;flex-shrink:0;margin:0 auto;">
+        ${segs}
+        <text x="80" y="74" text-anchor="middle" font-size="11" fill="var(--text-2)">월 지출</text>
+        <text x="80" y="93" text-anchor="middle" font-size="15" font-weight="700" fill="var(--text)">${fmtMan(total)}</text>
+      </svg>
+      <div style="flex:1;min-width:170px;">${legend}</div>
+    </div>
+  </div>`;
+}
+
+function renderLedger() {
+  // 이번 달 지출 카테고리별 집계 (큰 순)
+  const sp = spentByCat();
+  let cats = S.bd.map(b => ({ n: b.n, a: sp[b.id] || 0 }))
+    .filter(c => c.a > 0)
+    .sort((a, b) => b.a - a.a);
+  const total = cats.reduce((s, c) => s + c.a, 0);
+  // 항목이 많으면 상위 7개 + 기타로 묶기
+  if (cats.length > 8) {
+    const rest = cats.slice(7).reduce((s, c) => s + c.a, 0);
+    cats = [...cats.slice(0, 7), { n: '기타', a: rest }];
+  }
+
+  // 전체 거래 내역 (월별 그룹, 탭하면 수정)
+  const all = [...S.tx].sort((a, b) => b.d.localeCompare(a.d));
+  let listHtml;
+  if (!all.length) {
+    listHtml = '<div class="empty">거래 내역이 없습니다</div>';
+  } else {
+    let html = '', curMonth = '';
+    all.forEach(t => {
+      const m = t.d.slice(0, 7);
+      if (m !== curMonth) {
+        curMonth = m;
+        const [y, mo] = m.split('-');
+        html += `<div class="group-title" style="margin:14px 4px 4px;">${y}년 ${parseInt(mo,10)}월</div>`;
+      }
+      const sign = t.t === 'income' ? '+' : t.t === 'invest' ? '◆ ' : '';
+      html += `<div class="tx-row" onclick="editTx('${t.id}')" style="cursor:pointer;">
+        <div class="tx-left">
+          <div class="tx-m">${t.m}</div>
+          <div class="tx-meta">${t.d.slice(5).replace('-','/')} · ${catNameOf(t)} · <span class="dot ${payerDot(t.p)}"></span>${t.p}</div>
+        </div>
+        <div class="tx-a ${t.t}">${sign}${fmt(t.a)}원</div>
+      </div>`;
+    });
+    listHtml = html;
+  }
+
+  document.getElementById('tab-ledger').innerHTML = `
+    ${renderDonut(cats, total)}
+    <div class="card">
+      <div class="card-title">전체 거래${all.length ? ` · ${all.length}건 (탭하면 수정)` : ''}</div>
+      <div style="margin-top:4px;">${listHtml}</div>
+    </div>
+  `;
+}
+
 // ===== BUDGET =====
 function renderBudget() {
   const groups = ['고정','변동','비정기','용돈'];
@@ -1018,6 +1135,7 @@ function renderBudget() {
   }).join('');
 
   document.getElementById('tab-budget').innerHTML = `
+    <button onclick="switchTab('home')" style="background:none;border:0;color:var(--accent);font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;padding:4px 0;margin-bottom:8px;">‹ 홈</button>
     <div class="card">
       <div class="card-title">월 수입 (부부 합산)</div>
       <input type="text" class="amount-input" id="inc-input" value="${S.inc.toLocaleString('ko-KR')}" inputmode="numeric">
@@ -1420,6 +1538,7 @@ async function logout() {
 const renderers = {
   home: renderHome,
   input: renderInput,
+  ledger: renderLedger,
   budget: renderBudget,
   report: renderReport,
   asset: renderAsset

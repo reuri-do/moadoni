@@ -150,9 +150,6 @@ body {
 .cal-day .d { font-size: 12px; font-weight: 700; line-height: 1; }
 .cal-day .sum { font-size: 10px; margin-top: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text-2); }
 .cal-day.selected .sum { color: rgba(255,255,255,.86); }
-.cal-day .mark { display: flex; gap: 2px; margin-top: 5px; }
-.cal-day .mark span { width: 4px; height: 4px; border-radius: 50%; background: var(--accent); }
-.cal-day.selected .mark span { background: white; }
 
 .chart { width: 100%; height: auto; display: block; }
 .chart-line { stroke: var(--accent); fill: none; }
@@ -1115,7 +1112,9 @@ function renderDonut(items, total) {
   const legend = items.map((c, i) => {
     const col = DONUT_COLORS[i % DONUT_COLORS.length];
     const pct = (c.a / total * 100).toFixed(0);
-    return `<div style="display:flex;align-items:center;justify-content:space-between;padding:5px 0;font-size:13px;gap:8px;">
+    const clickAttr = c.id ? ` data-ledger-cat="${c.id}"` : '';
+    const cursor = c.id ? 'cursor:pointer;' : '';
+    return `<div${clickAttr} style="display:flex;align-items:center;justify-content:space-between;padding:5px 0;font-size:13px;gap:8px;${cursor}">
       <span style="display:flex;align-items:center;gap:7px;min-width:0;">
         <span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:${col};flex-shrink:0;"></span>
         <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${c.n}</span>
@@ -1140,14 +1139,14 @@ function renderDonut(items, total) {
 function renderLedger() {
   // 이번 달 지출 카테고리별 집계 (큰 순)
   const sp = spentByCat();
-  let cats = S.bd.map(b => ({ n: b.n, a: sp[b.id] || 0 }))
+  let cats = S.bd.map(b => ({ id: b.id, n: b.n, a: sp[b.id] || 0 }))
     .filter(c => c.a > 0)
     .sort((a, b) => b.a - a.a);
   const total = cats.reduce((s, c) => s + c.a, 0);
   // 항목이 많으면 상위 7개 + 기타로 묶기
   if (cats.length > 8) {
     const rest = cats.slice(7).reduce((s, c) => s + c.a, 0);
-    cats = [...cats.slice(0, 7), { n: '기타', a: rest }];
+    cats = [...cats.slice(0, 7), { id: '', n: '기타', a: rest }];
   }
 
   // 전체 거래 내역 (날짜별 그룹, 탭하면 수정)
@@ -1181,6 +1180,9 @@ function renderLedger() {
       <div style="margin-top:4px;">${listHtml}</div>
     </div>
   `;
+  document.querySelectorAll('[data-ledger-cat]').forEach(el => {
+    el.addEventListener('click', () => openCategoryDetail(el.dataset.ledgerCat, MONTH));
+  });
 }
 
 // ===== CALENDAR =====
@@ -1218,7 +1220,6 @@ function renderCalendar() {
     const day = CAL_MONTH + '-' + _pad(d);
     const rows = byDay[day] || [];
     const daySpent = txAmountByType(rows, 'expense');
-    const marks = rows.slice(0, 3).map(() => '<span></span>').join('');
     const cls = [
       'cal-day',
       day === TODAY ? 'today' : '',
@@ -1227,7 +1228,6 @@ function renderCalendar() {
     cells += `<button class="${cls}" onclick="setCalendarDay('${day}')">
       <div class="d">${d}</div>
       ${daySpent ? `<div class="sum">${fmtMan(daySpent)}</div>` : ''}
-      ${rows.length ? `<div class="mark">${marks}</div>` : ''}
     </button>`;
   }
 

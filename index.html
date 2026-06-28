@@ -124,6 +124,35 @@ body {
 .sheet-item-head .am b { color: var(--text); font-weight: 600; }
 .sheet-item-head .am .pct.over { color: var(--danger); font-weight: 600; }
 .sheet-item-head .am .pct.warn { color: #ff9500; font-weight: 600; }
+.sheet-item.clickable { cursor: pointer; }
+.sheet-item.clickable:active { opacity: .65; }
+.mini-stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 12px; }
+.mini-stat {
+  background: var(--surface-2); border-radius: 10px; padding: 10px; min-width: 0;
+}
+.mini-stat .l { font-size: 10px; color: var(--text-2); margin-bottom: 2px; }
+.mini-stat .v { font-size: 13px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.month-nav { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
+.month-nav button {
+  width: 36px; height: 36px; border: 0.5px solid var(--border-2); border-radius: 18px;
+  background: var(--surface); color: var(--text); font-size: 18px; cursor: pointer; font-family: inherit;
+}
+.month-nav .month-label { flex: 1; text-align: center; font-size: 17px; font-weight: 700; }
+.calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+.cal-head { text-align: center; color: var(--text-3); font-size: 10px; padding: 4px 0; }
+.cal-day {
+  min-height: 54px; border: 0.5px solid var(--border); border-radius: 10px; background: var(--surface);
+  padding: 6px 5px; text-align: left; color: var(--text); font-family: inherit; cursor: pointer;
+}
+.cal-day.blank { visibility: hidden; }
+.cal-day.today { border-color: var(--accent); }
+.cal-day.selected { background: var(--accent); color: white; border-color: var(--accent); }
+.cal-day .d { font-size: 12px; font-weight: 700; line-height: 1; }
+.cal-day .sum { font-size: 10px; margin-top: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text-2); }
+.cal-day.selected .sum { color: rgba(255,255,255,.86); }
+.cal-day .mark { display: flex; gap: 2px; margin-top: 5px; }
+.cal-day .mark span { width: 4px; height: 4px; border-radius: 50%; background: var(--accent); }
+.cal-day.selected .mark span { background: white; }
 
 .chart { width: 100%; height: auto; display: block; }
 .chart-line { stroke: var(--accent); fill: none; }
@@ -304,6 +333,7 @@ body {
     <section id="tab-home" class="tab active"></section>
     <section id="tab-input" class="tab"></section>
     <section id="tab-ledger" class="tab"></section>
+    <section id="tab-calendar" class="tab"></section>
     <section id="tab-budget" class="tab"></section>
     <section id="tab-report" class="tab"></section>
     <section id="tab-asset" class="tab"></section>
@@ -312,6 +342,7 @@ body {
     <button data-tab="home" class="active"><span class="ic">🏠</span>홈</button>
     <button data-tab="input"><span class="ic">＋</span>입력</button>
     <button data-tab="ledger"><span class="ic">🧾</span>내역</button>
+    <button data-tab="calendar"><span class="ic">📅</span>달력</button>
     <button data-tab="report"><span class="ic">📋</span>결산</button>
     <button data-tab="asset"><span class="ic">💎</span>자산</button>
   </nav>
@@ -401,6 +432,8 @@ const DAYS_IN_MONTH = new Date(_now.getFullYear(), _now.getMonth() + 1, 0).getDa
 const YEAR = _now.getFullYear();
 const MON = _now.getMonth() + 1;
 const DAY = _now.getDate();
+let CAL_MONTH = MONTH;
+let CAL_DAY = TODAY;
 
 const DEFAULTS = {
   inc: 0,
@@ -511,28 +544,20 @@ function editTx(id) {
 
 // 전체 거래 내역 (월별 그룹, 탭하면 수정/삭제)
 function openAllTx() {
-  const all = [...S.tx].sort((a, b) => b.d.localeCompare(a.d));
+  const all = [...S.tx].sort(sortTxDesc);
   document.getElementById('sheet-title').textContent = '전체 거래 내역';
   document.getElementById('sheet-sub').textContent = all.length ? `${all.length}건 · 탭하면 수정/삭제` : '';
   if (!all.length) {
     document.getElementById('sheet-body').innerHTML = '<div class="empty">거래 내역이 없습니다</div>';
   } else {
-    let html = '', curMonth = '';
+    let html = '', curDay = '';
     all.forEach(t => {
-      const m = t.d.slice(0, 7);
-      if (m !== curMonth) {
-        curMonth = m;
-        const [y, mo] = m.split('-');
-        html += `<div class="gn" style="margin:14px 0 4px;font-size:11px;color:var(--text-3);font-weight:500;">${y}년 ${parseInt(mo,10)}월</div>`;
+      if (t.d !== curDay) {
+        curDay = t.d;
+        const [y, mo, d] = t.d.split('-').map(Number);
+        html += `<div class="gn" style="margin:14px 0 4px;font-size:11px;color:var(--text-3);font-weight:500;">${y}년 ${mo}월 ${d}일</div>`;
       }
-      const sign = t.t === 'income' ? '+' : t.t === 'invest' ? '◆ ' : '';
-      html += `<div class="tx-row" onclick="editFromSheet('${t.id}')" style="cursor:pointer;">
-        <div class="tx-left">
-          <div class="tx-m">${t.m}</div>
-          <div class="tx-meta">${t.d.slice(5).replace('-','/')} · ${catNameOf(t)} · <span class="dot ${payerDot(t.p)}"></span>${t.p}</div>
-        </div>
-        <div class="tx-a ${t.t}">${sign}${fmt(t.a)}원</div>
-      </div>`;
+      html += txRowHtml(t, { fromSheet: true });
     });
     document.getElementById('sheet-body').innerHTML = html;
   }
@@ -616,6 +641,47 @@ function catNameOf(t) {
   if (t.t === 'invest') { const c = INVEST_CATS.find(x => x.id === t.c); return c ? c.n : '투자'; }
   const b = S.bd.find(x => x.id === t.c); return b ? b.n : '기타';
 }
+function monthLabel(m) {
+  const [y, mo] = m.split('-').map(Number);
+  return `${y}년 ${mo}월`;
+}
+function addMonths(m, delta) {
+  const [y, mo] = m.split('-').map(Number);
+  const d = new Date(y, mo - 1 + delta, 1);
+  return d.getFullYear() + '-' + _pad(d.getMonth() + 1);
+}
+function daysInMonth(m) {
+  const [y, mo] = m.split('-').map(Number);
+  return new Date(y, mo, 0).getDate();
+}
+function sortTxDesc(a, b) {
+  return b.d.localeCompare(a.d) || String(b.id || '').localeCompare(String(a.id || ''));
+}
+function sortTxAsc(a, b) {
+  return a.d.localeCompare(b.d) || String(a.id || '').localeCompare(String(b.id || ''));
+}
+function txForMonth(m) {
+  return S.tx.filter(t => t.d && t.d.startsWith(m));
+}
+function txForDay(day) {
+  return S.tx.filter(t => t.d === day).sort(sortTxDesc);
+}
+function txAmountByType(rows, type) {
+  return rows.filter(t => t.t === type).reduce((s, t) => s + t.a, 0);
+}
+function txRowHtml(t, opts) {
+  opts = opts || {};
+  const sign = t.t === 'income' ? '+' : t.t === 'invest' ? '◆ ' : '';
+  const dateText = opts.fullDate ? t.d.replaceAll('-', '.') : t.d.slice(5).replace('-','/');
+  const action = opts.fromSheet ? 'editFromSheet' : 'editTx';
+  return `<div class="tx-row" onclick="${action}('${t.id}')" style="cursor:pointer;">
+    <div class="tx-left">
+      <div class="tx-m">${t.m}</div>
+      <div class="tx-meta">${dateText} · ${catNameOf(t)} · <span class="dot ${payerDot(t.p)}"></span>${t.p}</div>
+    </div>
+    <div class="tx-a ${t.t}">${sign}${fmt(t.a)}원</div>
+  </div>`;
+}
 
 function spentByCat() {
   const map = {};
@@ -693,6 +759,7 @@ const HEADERS = {
   home:   {t:'홈',         s:`${YEAR}년 ${MON}월 · ${DAY}일`},
   input:  {t:'거래 입력',  s:'오늘 ' + TODAY.slice(5)},
   ledger: {t:'내역',       s:`${MON}월 지출 비중 · 전체 거래`},
+  calendar:{t:'달력',      s:'월별 기록 보기'},
   budget: {t:'예산 설정',  s:'월 예산 관리'},
   report: {t:`${MON}월 결산`, s:'한 달 돌아보기'},
   asset:  {t:'자산',       s:`${MON}월 ${DAY}일 기준`}
@@ -705,7 +772,7 @@ function switchTab(name) {
   const tabBtn = document.querySelector('.tabbar button[data-tab="' + name + '"]');
   if (tabBtn) tabBtn.classList.add('active');   // 예산 설정은 탭바에 없음 (홈에서 진입)
   document.getElementById('header-title').textContent = HEADERS[name].t;
-  document.getElementById('header-sub').textContent = HEADERS[name].s;
+  document.getElementById('header-sub').textContent = name === 'calendar' ? monthLabel(CAL_MONTH) + ' 기록' : HEADERS[name].s;
   window.scrollTo(0, 0);
   renderers[name]();
 }
@@ -741,18 +808,8 @@ function renderHome() {
     </div>`;
   }).join('');
 
-  const recent = [...S.tx].sort((a, b) => b.d.localeCompare(a.d) || 0).slice(0, 6);
-  const txList = recent.length ? recent.map(t => {
-    const sign = t.t === 'income' ? '+' : t.t === 'invest' ? '◆ ' : '';
-    const catName = catNameOf(t);
-    return `<div class="tx-row" onclick="editTx('${t.id}')" style="cursor:pointer;">
-      <div class="tx-left">
-        <div class="tx-m">${t.m}</div>
-        <div class="tx-meta">${t.d.slice(5).replace('-','/')} · ${catName} · <span class="dot ${payerDot(t.p)}"></span>${t.p}</div>
-      </div>
-      <div class="tx-a ${t.t}">${sign}${fmt(t.a)}원</div>
-    </div>`;
-  }).join('') : '<div class="empty">거래 내역이 없습니다</div>';
+  const recent = [...S.tx].sort(sortTxDesc).slice(0, 6);
+  const txList = recent.length ? recent.map(t => txRowHtml(t)).join('') : '<div class="empty">거래 내역이 없습니다</div>';
 
   document.getElementById('tab-home').innerHTML = `
     <div style="display:flex;justify-content:flex-end;margin-bottom:8px;">
@@ -828,17 +885,37 @@ function openCatSheet(g) {
     const barCls = over ? 'over' : warn ? 'warn' : '';
     const remain = b.a - s;
     const remainText = remain >= 0 ? `잔여 ${fmt(remain)}원` : `초과 ${fmt(-remain)}원`;
-    return `<div class="sheet-item">
+    const count = S.tx.filter(t => t.t === 'expense' && t.c === b.id && t.d.startsWith(MONTH)).length;
+    return `<div class="sheet-item clickable" data-cat-detail="${b.id}">
       <div class="sheet-item-head">
         <span class="nm">${partnerDot(b)}${b.n}</span>
         <span class="am"><b>${fmt(s)}</b> / ${fmt(b.a)}원 <span class="pct ${pCls}">· ${p}%</span></span>
       </div>
       <div class="bar ${barCls}"><div style="width:${pCapped}%"></div></div>
-      <div class="sub-num" style="margin-top:5px;text-align:right;font-size:11px;">${remainText}</div>
+      <div class="sub-num" style="margin-top:5px;text-align:right;font-size:11px;">${remainText} · 거래 ${count}건 ›</div>
     </div>`;
   }).join('');
 
   document.getElementById('sheet-body').innerHTML = body;
+  document.querySelectorAll('[data-cat-detail]').forEach(el => {
+    el.addEventListener('click', () => openCategoryDetail(el.dataset.catDetail, MONTH));
+  });
+  document.getElementById('sheet').classList.add('show');
+  document.getElementById('sheet-backdrop').classList.add('show');
+}
+
+function openCategoryDetail(catId, month) {
+  month = month || MONTH;
+  const b = S.bd.find(x => x.id === catId);
+  if (!b) return;
+  const rows = S.tx.filter(t => t.t === 'expense' && t.c === catId && t.d.startsWith(month)).sort(sortTxDesc);
+  const total = rows.reduce((s, t) => s + t.a, 0);
+  const pct = b.a ? Math.round(total / b.a * 100) : 0;
+  document.getElementById('sheet-title').textContent = b.n;
+  document.getElementById('sheet-sub').textContent = `${monthLabel(month)} · ${fmt(total)}원 / 예산 ${fmt(b.a)}원 · ${pct}%`;
+  document.getElementById('sheet-body').innerHTML = rows.length
+    ? rows.map(t => txRowHtml(t, { fullDate: true, fromSheet: true })).join('')
+    : '<div class="empty">이 달의 거래가 없습니다</div>';
   document.getElementById('sheet').classList.add('show');
   document.getElementById('sheet-backdrop').classList.add('show');
 }
@@ -1073,28 +1150,26 @@ function renderLedger() {
     cats = [...cats.slice(0, 7), { n: '기타', a: rest }];
   }
 
-  // 전체 거래 내역 (월별 그룹, 탭하면 수정)
-  const all = [...S.tx].sort((a, b) => b.d.localeCompare(a.d));
+  // 전체 거래 내역 (날짜별 그룹, 탭하면 수정)
+  const all = [...S.tx].sort(sortTxDesc);
   let listHtml;
   if (!all.length) {
     listHtml = '<div class="empty">거래 내역이 없습니다</div>';
   } else {
-    let html = '', curMonth = '';
+    let html = '', curDay = '';
     all.forEach(t => {
-      const m = t.d.slice(0, 7);
-      if (m !== curMonth) {
-        curMonth = m;
-        const [y, mo] = m.split('-');
-        html += `<div class="group-title" style="margin:14px 4px 4px;">${y}년 ${parseInt(mo,10)}월</div>`;
+      if (t.d !== curDay) {
+        curDay = t.d;
+        const [y, mo, d] = t.d.split('-').map(Number);
+        const dayRows = S.tx.filter(x => x.d === t.d);
+        const spent = txAmountByType(dayRows, 'expense');
+        const income = txAmountByType(dayRows, 'income');
+        html += `<div class="group-title" style="margin:14px 4px 4px;display:flex;justify-content:space-between;">
+          <span>${y}년 ${mo}월 ${d}일</span>
+          <span>${spent ? '지출 ' + fmt(spent) + '원' : ''}${spent && income ? ' · ' : ''}${income ? '수입 ' + fmt(income) + '원' : ''}</span>
+        </div>`;
       }
-      const sign = t.t === 'income' ? '+' : t.t === 'invest' ? '◆ ' : '';
-      html += `<div class="tx-row" onclick="editTx('${t.id}')" style="cursor:pointer;">
-        <div class="tx-left">
-          <div class="tx-m">${t.m}</div>
-          <div class="tx-meta">${t.d.slice(5).replace('-','/')} · ${catNameOf(t)} · <span class="dot ${payerDot(t.p)}"></span>${t.p}</div>
-        </div>
-        <div class="tx-a ${t.t}">${sign}${fmt(t.a)}원</div>
-      </div>`;
+      html += txRowHtml(t);
     });
     listHtml = html;
   }
@@ -1104,6 +1179,91 @@ function renderLedger() {
     <div class="card">
       <div class="card-title">전체 거래${all.length ? ` · ${all.length}건 (탭하면 수정)` : ''}</div>
       <div style="margin-top:4px;">${listHtml}</div>
+    </div>
+  `;
+}
+
+// ===== CALENDAR =====
+function setCalendarMonth(m) {
+  CAL_MONTH = m;
+  const maxDay = daysInMonth(CAL_MONTH);
+  const dayNum = Math.min(Number((CAL_DAY || TODAY).slice(8, 10)) || 1, maxDay);
+  CAL_DAY = CAL_MONTH + '-' + _pad(dayNum);
+  document.getElementById('header-sub').textContent = monthLabel(CAL_MONTH) + ' 기록';
+  renderCalendar();
+}
+function setCalendarDay(day) {
+  CAL_DAY = day;
+  renderCalendar();
+}
+
+function renderCalendar() {
+  const monthRows = txForMonth(CAL_MONTH);
+  const spent = txAmountByType(monthRows, 'expense');
+  const income = txAmountByType(monthRows, 'income');
+  const invest = txAmountByType(monthRows, 'invest');
+  const byDay = {};
+  monthRows.forEach(t => {
+    if (!byDay[t.d]) byDay[t.d] = [];
+    byDay[t.d].push(t);
+  });
+
+  const [y, mo] = CAL_MONTH.split('-').map(Number);
+  const first = new Date(y, mo - 1, 1).getDay();
+  const totalDays = daysInMonth(CAL_MONTH);
+  const heads = ['일','월','화','수','목','금','토'].map(d => `<div class="cal-head">${d}</div>`).join('');
+  let cells = '';
+  for (let i = 0; i < first; i++) cells += '<div class="cal-day blank"></div>';
+  for (let d = 1; d <= totalDays; d++) {
+    const day = CAL_MONTH + '-' + _pad(d);
+    const rows = byDay[day] || [];
+    const daySpent = txAmountByType(rows, 'expense');
+    const marks = rows.slice(0, 3).map(() => '<span></span>').join('');
+    const cls = [
+      'cal-day',
+      day === TODAY ? 'today' : '',
+      day === CAL_DAY ? 'selected' : ''
+    ].filter(Boolean).join(' ');
+    cells += `<button class="${cls}" onclick="setCalendarDay('${day}')">
+      <div class="d">${d}</div>
+      ${daySpent ? `<div class="sum">${fmtMan(daySpent)}</div>` : ''}
+      ${rows.length ? `<div class="mark">${marks}</div>` : ''}
+    </button>`;
+  }
+
+  const selectedRows = txForDay(CAL_DAY);
+  const selectedList = selectedRows.length
+    ? selectedRows.map(t => txRowHtml(t)).join('')
+    : '<div class="empty">선택한 날짜의 기록이 없습니다</div>';
+  const monthList = monthRows.length
+    ? monthRows.sort(sortTxDesc).map(t => txRowHtml(t)).join('')
+    : '<div class="empty">이 달의 기록이 없습니다</div>';
+
+  document.getElementById('tab-calendar').innerHTML = `
+    <div class="month-nav">
+      <button onclick="setCalendarMonth(addMonths(CAL_MONTH, -1))">‹</button>
+      <div class="month-label">${monthLabel(CAL_MONTH)}</div>
+      <button onclick="setCalendarMonth(addMonths(CAL_MONTH, 1))">›</button>
+    </div>
+
+    <div class="mini-stat-grid">
+      <div class="mini-stat"><div class="l">수입</div><div class="v" style="color:var(--success)">${fmtMan(income)}</div></div>
+      <div class="mini-stat"><div class="l">지출</div><div class="v">${fmtMan(spent)}</div></div>
+      <div class="mini-stat"><div class="l">투자</div><div class="v" style="color:var(--accent)">${fmtMan(invest)}</div></div>
+    </div>
+
+    <div class="card">
+      <div class="calendar-grid">${heads}${cells}</div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">${CAL_DAY.replaceAll('-', '.')} 기록${selectedRows.length ? ` · ${selectedRows.length}건` : ''}</div>
+      ${selectedList}
+    </div>
+
+    <div class="card">
+      <div class="card-title">${monthLabel(CAL_MONTH)} 전체 기록${monthRows.length ? ` · ${monthRows.length}건` : ''}</div>
+      ${monthList}
     </div>
   `;
 }
@@ -1539,6 +1699,7 @@ const renderers = {
   home: renderHome,
   input: renderInput,
   ledger: renderLedger,
+  calendar: renderCalendar,
   budget: renderBudget,
   report: renderReport,
   asset: renderAsset
